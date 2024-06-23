@@ -1,0 +1,9 @@
+[package]
+name = "simple-rtp-engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.38.0", features = ["full"] }
+serde = { version = "1.0.203", features = ["derive"] }
+serde_bencode = { version = "0.2.4" }

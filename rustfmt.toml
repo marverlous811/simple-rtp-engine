@@ -1,0 +1,5 @@
+tab_spaces = 2
+tab_size = 2
+max_width = 120
+single_line_if_else_max_width = 20
+short_array_element_width_threshold = 20
