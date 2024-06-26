@@ -1,18 +1,8 @@
-use std::net::SocketAddr;
+use std::{borrow::Borrow, collections::HashMap, net::SocketAddr, sync::Arc};
 
-use tokio::select;
+use tokio::{net::UdpSocket, select};
 
 use crate::{NgCmdResult, NgCommand};
-
-#[derive(Debug)]
-pub enum NgControllerMsg {
-  UdpMsg(String, SocketAddr),
-}
-
-#[derive(Debug)]
-pub enum NgControllerResponse {
-  UdpResponse(String, SocketAddr),
-}
 
 #[derive(Debug)]
 pub struct NgRequest {
@@ -48,46 +38,64 @@ impl NgResponse {
   }
 }
 
-pub struct NgController {
-  pub tx: tokio::sync::mpsc::Sender<NgControllerMsg>,
-  rx: tokio::sync::mpsc::Receiver<NgControllerMsg>,
-  listener_rx: tokio::sync::mpsc::Sender<NgControllerResponse>,
+#[derive(Debug)]
+pub enum NgControllerMsg {
+  NetPacket(String, SocketAddr),
+  NgResponse(NgResponse),
 }
 
-impl NgController {
-  pub fn new(listener_rx: tokio::sync::mpsc::Sender<NgControllerResponse>) -> NgController {
-    let (tx, rx) = tokio::sync::mpsc::channel(100);
-    NgController { tx, rx, listener_rx }
+pub struct NgControllerConfig<T> {
+  pub listener_addr: String,
+  pub out_chan: tokio::sync::mpsc::Sender<T>,
+}
+
+pub struct NgController<T> {
+  listener: Arc<UdpSocket>,
+  request_mapper: HashMap<String, SocketAddr>,
+  out_chan: tokio::sync::mpsc::Sender<T>,
+  inter_tx: tokio::sync::mpsc::Sender<NgControllerMsg>,
+  inter_rx: tokio::sync::mpsc::Receiver<NgControllerMsg>,
+}
+
+impl<T> NgController<T> {
+  pub async fn new(cfg: NgControllerConfig<T>) -> Self {
+    let socket = UdpSocket::bind(cfg.listener_addr).await.unwrap();
+    let (inter_tx, inter_rx) = tokio::sync::mpsc::channel::<NgControllerMsg>(100);
+    NgController {
+      listener: Arc::new(socket),
+      request_mapper: HashMap::new(),
+      out_chan: cfg.out_chan,
+      inter_tx,
+      inter_rx,
+    }
   }
 
   pub async fn process(&mut self) {
+    let sock: &UdpSocket = self.listener.borrow();
+    let mut buf = vec![0; 1400];
     loop {
       select! {
-        Some(msg) = self.rx.recv() => {
+        Ok((len, addr)) = sock.recv_from(&mut buf) => {
+          let data = std::str::from_utf8(&buf[..len]).unwrap().to_string();
+          self.inter_tx.send(NgControllerMsg::NetPacket(data, addr)).await.unwrap();
+        }
+        Some(msg) = self.inter_rx.recv() => {
           match msg {
-            NgControllerMsg::UdpMsg(msg, sock) => {
-              println!("Received UDP message: {}", msg);
+            NgControllerMsg::NetPacket(msg, addr) => {
               match NgRequest::from_str(&msg) {
                 Some(packet) => {
-                  println!("Received packet: {:?}", packet);
-                  match packet.command {
-                    NgCommand::Ping {} => {
-                      println!("Received ping");
-                      let response = NgResponse {
-                        id: packet.id,
-                        result: NgCmdResult::Pong {result:"pong".to_string(), error_reason: None },
-                      };
-                      let msg = response.to_str();
-                      self.listener_rx.send(NgControllerResponse::UdpResponse(msg, sock)).await.unwrap();
-                    }
-                    _ => {
-                      println!("Received unknown command");
-                    }
-                  }
+                  self.request_mapper.insert(packet.id.clone(), addr);
+                  self.handle_ng_request(packet, addr).await;
                 }
                 None => {
-                  println!("Failed to parse packet");
+                  println!("error when parser to ng request");
                 }
+              }
+            }
+            NgControllerMsg::NgResponse(response) => {
+              if let Some(addr) = self.request_mapper.remove(&response.id) {
+                let msg = response.to_str();
+                sock.send_to(msg.as_bytes(), addr).await.unwrap();
               }
             }
           }
@@ -97,5 +105,27 @@ impl NgController {
         }
       }
     }
+  }
+
+  pub async fn handle_ng_request(&self, packet: NgRequest, addr: SocketAddr) {
+    match packet.command {
+      NgCommand::Ping {} => {
+        let response = NgResponse {
+          id: packet.id,
+          result: NgCmdResult::Pong {
+            result: "pong".to_string(),
+            error_reason: None,
+          },
+        };
+        self.inter_tx.send(NgControllerMsg::NgResponse(response)).await.unwrap();
+      }
+      _ => {
+        println!("Received unknown command");
+      }
+    }
+  }
+
+  pub async fn send(&self, data: NgControllerMsg) {
+    self.inter_tx.send(data).await.unwrap();
   }
 }
