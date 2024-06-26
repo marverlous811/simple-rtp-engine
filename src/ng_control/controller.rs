@@ -2,7 +2,7 @@ use std::{borrow::Borrow, collections::HashMap, net::SocketAddr, sync::Arc};
 
 use tokio::{net::UdpSocket, select};
 
-use crate::{NgCmdResult, NgCommand};
+use crate::{Call, CallActionResult, CallMsg, CallResult, MainEvent, NgCmdResult, NgCommand};
 
 #[derive(Debug)]
 pub struct NgRequest {
@@ -42,23 +42,24 @@ impl NgResponse {
 pub enum NgControllerMsg {
   NetPacket(String, SocketAddr),
   NgResponse(NgResponse),
+  CallActionResult(CallActionResult),
 }
 
-pub struct NgControllerConfig<T> {
+pub struct NgControllerConfig {
   pub listener_addr: String,
-  pub out_chan: tokio::sync::mpsc::Sender<T>,
+  pub out_chan: tokio::sync::mpsc::Sender<MainEvent>,
 }
 
-pub struct NgController<T> {
+pub struct NgController {
   listener: Arc<UdpSocket>,
   request_mapper: HashMap<String, SocketAddr>,
-  out_chan: tokio::sync::mpsc::Sender<T>,
+  out_chan: tokio::sync::mpsc::Sender<MainEvent>,
   inter_tx: tokio::sync::mpsc::Sender<NgControllerMsg>,
   inter_rx: tokio::sync::mpsc::Receiver<NgControllerMsg>,
 }
 
-impl<T> NgController<T> {
-  pub async fn new(cfg: NgControllerConfig<T>) -> Self {
+impl NgController {
+  pub async fn new(cfg: NgControllerConfig) -> Self {
     let socket = UdpSocket::bind(cfg.listener_addr).await.unwrap();
     let (inter_tx, inter_rx) = tokio::sync::mpsc::channel::<NgControllerMsg>(100);
     NgController {
@@ -85,7 +86,7 @@ impl<T> NgController<T> {
               match NgRequest::from_str(&msg) {
                 Some(packet) => {
                   self.request_mapper.insert(packet.id.clone(), addr);
-                  self.handle_ng_request(packet, addr).await;
+                  self.handle_ng_request(packet).await;
                 }
                 None => {
                   println!("error when parser to ng request");
@@ -98,6 +99,56 @@ impl<T> NgController<T> {
                 sock.send_to(msg.as_bytes(), addr).await.unwrap();
               }
             }
+            NgControllerMsg::CallActionResult(result) => {
+              match result {
+                CallActionResult::Ok(result) => {
+                  match result {
+                    CallResult::Offer(req_id, sdp) => {
+                      let response = NgResponse {
+                        id: req_id,
+                        result: NgCmdResult::Offer {
+                          result: "ok".to_string(),
+                          error_reason: None,
+                          sdp: Some(sdp),
+                        },
+                      };
+                      self.inter_tx.send(NgControllerMsg::NgResponse(response)).await.unwrap();
+                    }
+                    CallResult::Answer(req_id, sdp) => {
+                      let response = NgResponse {
+                        id: req_id,
+                        result: NgCmdResult::Answer {
+                          result: "ok".to_string(),
+                          error_reason: None,
+                          sdp: Some(sdp),
+                        },
+                      };
+                      self.inter_tx.send(NgControllerMsg::NgResponse(response)).await.unwrap();
+                    }
+                    CallResult::Delete(req_id) => {
+                      self.inter_tx.send(NgControllerMsg::NgResponse(NgResponse {
+                        id: req_id,
+                        result: NgCmdResult::Delete {
+                          result: "ok".to_string(),
+                          error_reason: None,
+                        },
+                      })).await.unwrap();
+                    }
+                  }
+                }
+                CallActionResult::Error(id, reason) => {
+                  println!("Error: {}", reason);
+                  let response = NgResponse {
+                    id,
+                    result: NgCmdResult::Pong {
+                      result: "error".to_string(),
+                      error_reason: Some(reason),
+                    },
+                  };
+                  self.inter_tx.send(NgControllerMsg::NgResponse(response)).await.unwrap();
+                }
+              }
+            }
           }
         }
         else => {
@@ -107,8 +158,8 @@ impl<T> NgController<T> {
     }
   }
 
-  pub async fn handle_ng_request(&self, packet: NgRequest, addr: SocketAddr) {
-    match packet.command {
+  pub async fn handle_ng_request(&self, packet: NgRequest) {
+    match packet.command.clone() {
       NgCommand::Ping {} => {
         let response = NgResponse {
           id: packet.id,
@@ -119,13 +170,35 @@ impl<T> NgController<T> {
         };
         self.inter_tx.send(NgControllerMsg::NgResponse(response)).await.unwrap();
       }
-      _ => {
-        println!("Received unknown command");
+      NgCommand::Offer {
+        sdp: _,
+        call_id: _,
+        from_tag: _,
+      } => {
+        let msg = MainEvent::CallAction(CallMsg::NgRequest(packet.id, packet.command));
+        self.out_chan.send(msg).await.unwrap();
       }
-    }
+      NgCommand::Answer {
+        sdp: _,
+        call_id: _,
+        from_tag: _,
+        to_tag: _,
+      } => {
+        let msg = MainEvent::CallAction(CallMsg::NgRequest(packet.id, packet.command));
+        self.out_chan.send(msg).await.unwrap();
+      }
+      NgCommand::Delete {
+        call_id: _,
+        from_tag: _,
+        to_tag: _,
+      } => {
+        let msg = MainEvent::CallAction(CallMsg::NgRequest(packet.id, packet.command));
+        self.out_chan.send(msg).await.unwrap();
+      }
+    };
   }
 
-  pub async fn send(&self, data: NgControllerMsg) {
-    self.inter_tx.send(data).await.unwrap();
+  pub fn get_sender(&self) -> tokio::sync::mpsc::Sender<NgControllerMsg> {
+    self.inter_tx.clone()
   }
 }
