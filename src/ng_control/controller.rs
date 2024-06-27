@@ -174,6 +174,7 @@ impl NgController {
         sdp: _,
         call_id: _,
         from_tag: _,
+        ice: _,
       } => {
         let msg = MainEvent::CallAction(CallMsg::NgRequest(packet.id, packet.command));
         self.out_chan.send(msg).await.unwrap();
@@ -183,6 +184,7 @@ impl NgController {
         call_id: _,
         from_tag: _,
         to_tag: _,
+        ice: _,
       } => {
         let msg = MainEvent::CallAction(CallMsg::NgRequest(packet.id, packet.command));
         self.out_chan.send(msg).await.unwrap();

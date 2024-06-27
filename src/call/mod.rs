@@ -84,7 +84,12 @@ impl CallManager {
     while let Some(msg) = self.inter_rx.recv().await {
       match msg {
         CallMsg::NgRequest(id, cmd) => match cmd {
-          NgCommand::Offer { sdp, call_id, from_tag } => {
+          NgCommand::Offer {
+            sdp,
+            call_id,
+            from_tag,
+            ice,
+          } => {
             let mut call = Call::new(call_id.clone());
             let remote_sdp = sdp.clone();
             let leg = CallLeg::new(from_tag, remote_sdp.clone(), sdp);
@@ -103,6 +108,7 @@ impl CallManager {
             call_id,
             from_tag,
             to_tag,
+            ice,
           } => {
             if let Some(call) = self.call_map.get_mut(&call_id) {
               let remote_sdp = sdp.clone();

@@ -13,6 +13,8 @@ pub enum NgCommand {
     call_id: String,
     #[serde(rename = "from-tag")]
     from_tag: String,
+    #[serde(rename = "ICE")]
+    ice: Option<String>,
   },
 
   #[serde(rename = "answer")]
@@ -24,6 +26,8 @@ pub enum NgCommand {
     from_tag: String,
     #[serde(rename = "to-tag")]
     to_tag: String,
+    #[serde(rename = "ICE")]
+    ice: Option<String>,
   },
 
   #[serde(rename = "delete")]
@@ -139,6 +143,7 @@ mod test {
       sdp: "v=0".to_string(),
       call_id: "bvmWdxbe4hkHHHvCl_d-nQ..".to_string(),
       from_tag: "460d801e".to_string(),
+      ice: None,
     };
     let expect: NgCommand = NgCommand::from_str(input).unwrap();
     assert_eq!(expect, actual);

@@ -2,6 +2,7 @@ use simple_rtp_engine::NgCommand;
 
 fn main() {
   let offer = NgCommand::Offer {
+    ice: None,
     sdp: "v=0
 o=Zoiper 0 35676614 IN IP4 118.70.144.85
 s=Zoiper
