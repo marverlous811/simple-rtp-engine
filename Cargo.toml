@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.38.0", features = ["full"] }
+tokio-util = { version = "0.7.11", features = ["rt"] }
 serde = { version = "1.0.203", features = ["derive"] }
 serde_bencode = { version = "0.2.4" }
 public-ip-address = { version = "0.3.0" }

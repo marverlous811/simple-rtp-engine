@@ -1,7 +1,8 @@
-use simple_rtp_engine::{CallManager, MainEvent, NgController, NgControllerConfig, NgControllerMsg};
+use simple_rtp_engine::{CallManager, CallManagerConfig, MainEvent, NgController, NgControllerConfig, NgControllerMsg};
 
 #[tokio::main]
 async fn main() {
+  let ip_lookup_res = public_ip_address::perform_lookup(None).await.unwrap();
   let (tx, mut rx) = tokio::sync::mpsc::channel::<MainEvent>(100);
   let mut ng_controller = NgController::new(NgControllerConfig {
     listener_addr: "0.0.0.0:22222".to_string(),
@@ -12,8 +13,12 @@ async fn main() {
   tokio::spawn(async move {
     ng_controller.process().await;
   });
-
-  let mut call_manager = CallManager::new(tx.clone());
+  let call_cfg = CallManagerConfig {
+    addr: ip_lookup_res.ip.to_string(),
+    min_port: 30000,
+    max_port: 40000,
+  };
+  let mut call_manager = CallManager::new(call_cfg, tx.clone());
   let call_manager_sender = call_manager.get_sender();
   tokio::spawn(async move {
     call_manager.process().await;
