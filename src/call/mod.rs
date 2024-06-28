@@ -3,7 +3,6 @@ pub mod sdp;
 use ::sdp::SessionDescription;
 use sdp::{generate_sdp, SdpConfig};
 use tokio::{net::UdpSocket, select, sync::mpsc::Sender};
-use tokio_util::task::TaskTracker;
 
 use crate::{MainEvent, NgCommand};
 use std::collections::{HashMap, VecDeque};
@@ -45,13 +44,13 @@ impl CallLeg {
     }
   }
 
-  pub fn process(&self, call_chan: tokio::sync::mpsc::Sender<CallEvent>, tracker: &mut TaskTracker) -> Sender<Vec<u8>> {
+  pub fn process(&self, call_chan: tokio::sync::mpsc::Sender<CallEvent>) -> Sender<Vec<u8>> {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(100);
 
     let id = self.id.clone();
     let rtp_port = self.rtp_port;
 
-    tracker.spawn(async move {
+    tokio::spawn(async move {
       let socket = UdpSocket::bind(format!("0.0.0.0:{}", rtp_port)).await.unwrap();
       let mut cur_addr = None;
       let mut buf = vec![0; 1400];
@@ -95,14 +94,12 @@ pub struct Call {
   legs: HashMap<String, CallLeg>,
   call_id: String,
   internal_tx: tokio::sync::mpsc::Sender<CallEvent>,
-  task_tracker: tokio_util::task::TaskTracker,
 }
 
 impl Call {
   pub fn new(call_id: String) -> Self {
-    let task_tracker = TaskTracker::new();
     let (tx, mut rx) = tokio::sync::mpsc::channel(100);
-    task_tracker.spawn(async move {
+    tokio::spawn(async move {
       let mut leg_map = HashMap::<String, Sender<Vec<u8>>>::new();
       while let Some(event) = rx.recv().await {
         match event {
@@ -132,7 +129,6 @@ impl Call {
     Call {
       call_id,
       legs: HashMap::new(),
-      task_tracker: task_tracker,
       internal_tx: tx.clone(),
     }
   }
@@ -143,15 +139,13 @@ impl Call {
 
   pub async fn add_leg(&mut self, leg: CallLeg) {
     let leg_id = leg.id.clone();
-    let leg_tx = leg.process(self.internal_tx.clone(), &mut self.task_tracker);
+    let leg_tx = leg.process(self.internal_tx.clone());
     self.legs.insert(leg_id.clone(), leg);
     self.internal_tx.send(CallEvent::NewLeg(leg_id, leg_tx)).await.unwrap();
   }
 
   pub async fn delete(&mut self) -> Vec<isize> {
-    self.task_tracker.close();
     self.internal_tx.send(CallEvent::Close).await.unwrap();
-    self.task_tracker.wait().await;
 
     let mut ports = vec![];
     for (_, leg) in self.legs.iter() {
