@@ -196,67 +196,19 @@ impl CallManager {
   }
 
   pub async fn process(&mut self) {
-    while let Some(msg) = self.inter_rx.recv().await {
-      match msg {
-        CallMsg::NgRequest(id, cmd) => match cmd {
-          NgCommand::Offer {
-            sdp,
-            call_id,
-            from_tag,
-            ice: _,
-          } => match SessionDescription::try_from(sdp.clone()) {
-            Ok(src_sdp_obj) => {
-              if self.port_queue.len() < 4 {
-                self
-                  .out_chan
-                  .send(MainEvent::ActionResult(CallActionResult::Error(
-                    id,
-                    "Not enough port".to_string(),
-                  )))
-                  .await
-                  .unwrap();
-                return;
-              }
-              let rtp_port = self.port_queue.pop_back().unwrap();
-              let rtcp_port = self.port_queue.pop_back().unwrap();
-              let remote_sdp = generate_sdp(SdpConfig {
-                addr: self.cfg.addr.clone(),
-                rtcp_port,
-                rtp_port,
-                origin: src_sdp_obj.origin,
-              });
-              let leg = CallLeg::new(from_tag, remote_sdp.clone(), sdp, rtp_port, rtcp_port);
-              let mut call = Call::new(call_id.clone());
-              call.add_leg(leg).await;
-              self.call_map.insert(call_id.clone(), call);
-
-              let result = CallResult::Offer(id, remote_sdp);
-              self
-                .out_chan
-                .send(MainEvent::ActionResult(CallActionResult::Ok(result)))
-                .await
-                .unwrap();
-            }
-            Err(e) => {
-              self
-                .out_chan
-                .send(MainEvent::ActionResult(CallActionResult::Error(id, e.to_string())))
-                .await
-                .unwrap();
-              return;
-            }
-          },
-          NgCommand::Answer {
-            sdp,
-            call_id,
-            from_tag: _,
-            to_tag,
-            ice: _,
-          } => {
-            if let Some(call) = self.call_map.get_mut(&call_id) {
-              match SessionDescription::try_from(sdp.clone()) {
+    loop {
+      select! {
+        Some(msg) = self.inter_rx.recv() => {
+          match msg {
+            CallMsg::NgRequest(id, cmd) => match cmd {
+              NgCommand::Offer {
+                sdp,
+                call_id,
+                from_tag,
+                ice: _,
+              } => match SessionDescription::try_from(sdp.clone()) {
                 Ok(src_sdp_obj) => {
-                  if self.port_queue.len() < 2 {
+                  if self.port_queue.len() < 4 {
                     self
                       .out_chan
                       .send(MainEvent::ActionResult(CallActionResult::Error(
@@ -275,9 +227,12 @@ impl CallManager {
                     rtp_port,
                     origin: src_sdp_obj.origin,
                   });
-                  let leg = CallLeg::new(to_tag, remote_sdp.clone(), sdp, rtp_port, rtcp_port);
+                  let leg = CallLeg::new(from_tag, remote_sdp.clone(), sdp, rtp_port, rtcp_port);
+                  let mut call = Call::new(call_id.clone());
                   call.add_leg(leg).await;
-                  let result = CallResult::Answer(id, remote_sdp);
+                  self.call_map.insert(call_id.clone(), call);
+
+                  let result = CallResult::Offer(id, remote_sdp);
                   self
                     .out_chan
                     .send(MainEvent::ActionResult(CallActionResult::Ok(result)))
@@ -292,38 +247,90 @@ impl CallManager {
                     .unwrap();
                   return;
                 }
+              },
+              NgCommand::Answer {
+                sdp,
+                call_id,
+                from_tag: _,
+                to_tag,
+                ice: _,
+              } => {
+                if let Some(call) = self.call_map.get_mut(&call_id) {
+                  match SessionDescription::try_from(sdp.clone()) {
+                    Ok(src_sdp_obj) => {
+                      if self.port_queue.len() < 2 {
+                        self
+                          .out_chan
+                          .send(MainEvent::ActionResult(CallActionResult::Error(
+                            id,
+                            "Not enough port".to_string(),
+                          )))
+                          .await
+                          .unwrap();
+                        return;
+                      }
+                      let rtp_port = self.port_queue.pop_back().unwrap();
+                      let rtcp_port = self.port_queue.pop_back().unwrap();
+                      let remote_sdp = generate_sdp(SdpConfig {
+                        addr: self.cfg.addr.clone(),
+                        rtcp_port,
+                        rtp_port,
+                        origin: src_sdp_obj.origin,
+                      });
+                      let leg = CallLeg::new(to_tag, remote_sdp.clone(), sdp, rtp_port, rtcp_port);
+                      call.add_leg(leg).await;
+                      let result = CallResult::Answer(id, remote_sdp);
+                      self
+                        .out_chan
+                        .send(MainEvent::ActionResult(CallActionResult::Ok(result)))
+                        .await
+                        .unwrap();
+                    }
+                    Err(e) => {
+                      self
+                        .out_chan
+                        .send(MainEvent::ActionResult(CallActionResult::Error(id, e.to_string())))
+                        .await
+                        .unwrap();
+                      return;
+                    }
+                  }
+                } else {
+                  self
+                    .out_chan
+                    .send(MainEvent::ActionResult(CallActionResult::Error(
+                      id,
+                      "Call not found".to_string(),
+                    )))
+                    .await
+                    .unwrap();
+                }
               }
-            } else {
-              self
-                .out_chan
-                .send(MainEvent::ActionResult(CallActionResult::Error(
-                  id,
-                  "Call not found".to_string(),
-                )))
-                .await
-                .unwrap();
-            }
-          }
-          NgCommand::Delete {
-            call_id,
-            from_tag: _,
-            to_tag: _,
-          } => {
-            if let Some(mut call) = self.call_map.remove(&call_id) {
-              let relased_ports = call.delete().await;
-              for port in relased_ports {
-                self.port_queue.push_front(port);
+              NgCommand::Delete {
+                call_id,
+                from_tag: _,
+                to_tag: _,
+              } => {
+                if let Some(mut call) = self.call_map.remove(&call_id) {
+                  let relased_ports = call.delete().await;
+                  for port in relased_ports {
+                    self.port_queue.push_front(port);
+                  }
+                  let result = CallResult::Delete(id);
+                  self
+                    .out_chan
+                    .send(MainEvent::ActionResult(CallActionResult::Ok(result)))
+                    .await
+                    .unwrap();
+                }
               }
-              let result = CallResult::Delete(id);
-              self
-                .out_chan
-                .send(MainEvent::ActionResult(CallActionResult::Ok(result)))
-                .await
-                .unwrap();
-            }
+              _ => {}
+            },
           }
-          _ => {}
-        },
+        }
+        else => {
+          break
+        }
       }
     }
   }
