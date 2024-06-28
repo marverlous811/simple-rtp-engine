@@ -51,7 +51,7 @@ impl CallLeg {
     let id = self.id.clone();
     let rtp_port = self.rtp_port;
 
-    tracker.spawn(async move {
+    let handle = tracker.spawn(async move {
       let socket = UdpSocket::bind(format!("0.0.0.0:{}", rtp_port)).await.unwrap();
       let mut cur_addr = None;
       let mut buf = vec![0; 1400];
@@ -74,6 +74,7 @@ impl CallLeg {
           }
         }
       }
+      println!("Leg {id} closed");
     });
     tx
   }
@@ -82,6 +83,7 @@ impl CallLeg {
 pub enum CallEvent {
   NewLeg(String, tokio::sync::mpsc::Sender<Vec<u8>>),
   OnLegData(String, Vec<u8>),
+  Close(),
 }
 
 pub struct Call {
@@ -110,6 +112,11 @@ impl Call {
             {
               chan.send(data.clone()).await.unwrap();
             }
+          }
+          CallEvent::Close() => {
+            println!("Call event on close");
+            leg_map.clear();
+            break;
           }
         }
       }
@@ -187,7 +194,7 @@ impl CallManager {
             sdp,
             call_id,
             from_tag,
-            ice,
+            ice: _,
           } => match SessionDescription::try_from(sdp.clone()) {
             Ok(src_sdp_obj) => {
               if self.port_queue.len() < 4 {
@@ -233,9 +240,9 @@ impl CallManager {
           NgCommand::Answer {
             sdp,
             call_id,
-            from_tag,
+            from_tag: _,
             to_tag,
-            ice,
+            ice: _,
           } => {
             if let Some(call) = self.call_map.get_mut(&call_id) {
               match SessionDescription::try_from(sdp.clone()) {
@@ -259,7 +266,7 @@ impl CallManager {
                     rtp_port,
                     origin: src_sdp_obj.origin,
                   });
-                  let leg = CallLeg::new(from_tag, remote_sdp.clone(), sdp, rtp_port, rtcp_port);
+                  let leg = CallLeg::new(to_tag, remote_sdp.clone(), sdp, rtp_port, rtcp_port);
                   call.add_leg(leg).await;
                   let result = CallResult::Answer(id, remote_sdp);
                   self

@@ -2,7 +2,7 @@ use std::{borrow::Borrow, collections::HashMap, net::SocketAddr, sync::Arc};
 
 use tokio::{net::UdpSocket, select};
 
-use crate::{Call, CallActionResult, CallMsg, CallResult, MainEvent, NgCmdResult, NgCommand};
+use crate::{CallActionResult, CallMsg, CallResult, MainEvent, NgCmdResult, NgCommand};
 
 #[derive(Debug)]
 pub struct NgRequest {
