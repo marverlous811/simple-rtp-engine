@@ -51,7 +51,7 @@ impl CallLeg {
     let id = self.id.clone();
     let rtp_port = self.rtp_port;
 
-    let handle = tracker.spawn(async move {
+    tracker.spawn(async move {
       let socket = UdpSocket::bind(format!("0.0.0.0:{}", rtp_port)).await.unwrap();
       let mut cur_addr = None;
       let mut buf = vec![0; 1400];
@@ -62,7 +62,12 @@ impl CallLeg {
               cur_addr = Some(addr);
             }
             let data = buf[..n].to_vec();
-            call_chan.send(CallEvent::OnLegData(id.clone(), data)).await.unwrap();
+            match call_chan.send(CallEvent::OnLegData(id.clone(), data)).await {
+              Ok(_) => {}
+              Err(_) => {
+                println!("Leg {id} closed");
+              }
+            }
           }
           Some(data) = rx.recv() => {
             if let Some(addr) = cur_addr {
@@ -83,7 +88,7 @@ impl CallLeg {
 pub enum CallEvent {
   NewLeg(String, tokio::sync::mpsc::Sender<Vec<u8>>),
   OnLegData(String, Vec<u8>),
-  Close(),
+  Close,
 }
 
 pub struct Call {
@@ -110,10 +115,13 @@ impl Call {
               .filter(|item| (*item).0.as_str() != leg_id.as_str())
               .enumerate()
             {
-              chan.send(data.clone()).await.unwrap();
+              match chan.send(data.clone()).await {
+                Ok(_) => {}
+                Err(_) => {}
+              }
             }
           }
-          CallEvent::Close() => {
+          CallEvent::Close => {
             println!("Call event on close");
             leg_map.clear();
             break;
@@ -142,6 +150,7 @@ impl Call {
 
   pub async fn delete(&mut self) -> Vec<isize> {
     self.task_tracker.close();
+    self.internal_tx.send(CallEvent::Close).await.unwrap();
     self.task_tracker.wait().await;
 
     let mut ports = vec![];
