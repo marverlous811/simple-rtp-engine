@@ -15,6 +15,8 @@ pub enum BusData<Msg>
 where
   Msg: Clone + Debug,
 {
+  //data
+  Channel(Msg),
   //from, data
   Boardcast(usize, Msg),
   //from, to, data
@@ -25,7 +27,7 @@ pub struct Bus<Msg>
 where
   Msg: Clone + Debug,
 {
-  subcribers: Arc<RwLock<HashMap<usize, Sender<Msg>>>>,
+  subcribers: Arc<RwLock<HashMap<usize, Sender<Option<Msg>>>>>,
   atomic: AtomicUsize,
 }
 
@@ -37,7 +39,7 @@ impl<Msg: Clone + Debug> Bus<Msg> {
     }
   }
 
-  pub fn subcribe(&self) -> (usize, Receiver<Msg>) {
+  pub fn subcribe(&self) -> (usize, Receiver<Option<Msg>>) {
     let mut subcribers = self.subcribers.write();
     let res = self.atomic.fetch_add(1, Ordering::Relaxed);
     let (tx, rx) = tokio::sync::mpsc::channel(100);
@@ -57,7 +59,7 @@ impl<Msg: Clone + Debug> Bus<Msg> {
       BusData::Direct(_, to, msg) => {
         let subs = self.subcribers.read();
         if let Some(sender) = subs.get(&to) {
-          sender.send(msg).await.unwrap();
+          sender.send(Some(msg)).await.unwrap();
         }
       }
       BusData::Boardcast(from, msg) => {
@@ -67,9 +69,23 @@ impl<Msg: Clone + Debug> Bus<Msg> {
             continue;
           }
           // println!("boardcast data to other subcribers {:?}", msg);
-          sender.send(msg.clone()).await.unwrap();
+          sender.send(Some(msg.clone())).await.unwrap();
         }
       }
+      BusData::Channel(msg) => {
+        let subs = self.subcribers.read();
+        for (_, sender) in subs.iter() {
+          sender.send(Some(msg.clone())).await.unwrap();
+        }
+      }
+    }
+  }
+
+  pub async fn close(&self) {
+    let mut subcribers = self.subcribers.write();
+    for (_, sender) in subcribers.drain() {
+      sender.send(None).await.unwrap();
+      sender.closed().await;
     }
   }
 }
@@ -100,7 +116,14 @@ mod test {
       tokio::spawn(async move {
         while let Some(data) = rx.recv().await {
           // println!("receive data.. {}", data);
-          queue.write().push(data);
+          match data {
+            Some(data) => {
+              queue.write().push(data);
+            }
+            None => {
+              break;
+            }
+          }
         }
       });
     }
@@ -125,7 +148,7 @@ mod test {
 
     let queue = vec![1, 2, 3, 4, 5, 6];
     for (_, data) in queue.iter().enumerate() {
-      bus.publish(crate::BusData::Boardcast(usize::MAX, *data)).await;
+      bus.publish(crate::BusData::Channel(*data)).await;
     }
 
     sleep(time::Duration::from_secs(1)).await;
