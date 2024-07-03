@@ -61,4 +61,11 @@ where
       }
     }
   }
+
+  pub async fn close(&self, channel: ChannelId) {
+    let mut channels = self.channels.write();
+    if let Some(bus) = channels.remove(&channel) {
+      bus.close().await;
+    }
+  }
 }
