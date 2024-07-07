@@ -9,24 +9,23 @@ use std::{
 
 use clap::ArgMatches;
 use log::info;
+use media::{
+  ChannelId, Config, ExtInput, ExtOut, MediaRpcRequest, OwnerType, PortRange, RtpEngineMediaWorker, RtpEvent, SCfg,
+};
 use reedline_repl_rs::{
   clap::{Arg, Command},
   Error, Repl,
 };
 use sans_io_runtime::{backend::PollingBackend, Controller};
-use simple_rtp_engine::{
-  ChannelId, ConnectionRequest, Event, ExtIn, ExtOut, ICfg, OwnerType, PortRange, RtpEngineMediaWorker,
-  RtpEngineMediaWorkerCfg, SCfg,
-};
 use tokio::{select, sync::mpsc};
 
 pub struct ReplContext {
   seed: i32,
-  tx: mpsc::Sender<SCfg>,
+  tx: mpsc::Sender<MediaRpcRequest>,
 }
 
 impl ReplContext {
-  pub fn new(seed: i32, tx: mpsc::Sender<SCfg>) -> Self {
+  pub fn new(seed: i32, tx: mpsc::Sender<MediaRpcRequest>) -> Self {
     Self { seed, tx }
   }
 
@@ -54,13 +53,12 @@ async fn request_connect(args: ArgMatches, context: &mut ReplContext) -> Result<
   );
   context
     .tx
-    .send(SCfg::Offer(ConnectionRequest {
-      request_id: format!("{}", req_id),
-      call_id: call_id.clone(),
-      leg_id: peer_id.clone(),
-      sdp: sdp.clone(),
-    }))
-    .await;
+    .send(MediaRpcRequest {
+      id: req_id.to_string(),
+      cmd: media::MediaRpcCmd::Call(call_id.clone(), peer_id.clone(), sdp.clone()),
+    })
+    .await
+    .unwrap();
   Ok(Some("Ok".to_string()))
 }
 
@@ -80,16 +78,16 @@ async fn main() {
     .filter_level(log::LevelFilter::Debug)
     .format_timestamp_millis()
     .init();
-  let mut controller = Controller::<ExtIn, ExtOut, SCfg, ChannelId, Event, 128>::default();
+  let mut controller = Controller::<ExtInput, ExtOut, SCfg, ChannelId, RtpEvent, 128>::default();
   controller.add_worker::<OwnerType, _, RtpEngineMediaWorker, PollingBackend<_, 128, 512>>(
     Duration::from_millis(10),
-    RtpEngineMediaWorkerCfg {
+    Config {
       port_range: PortRange { min: 10000, max: 20000 },
     },
     None,
   );
 
-  let (tx, mut rx) = mpsc::channel::<SCfg>(100);
+  let (tx, mut rx) = mpsc::channel::<MediaRpcRequest>(100);
 
   tokio::spawn(async move {
     let mut shutdown_count = 0;
@@ -113,20 +111,11 @@ async fn main() {
               break;
             }
 
-            while let Some(ext) = controller.pop_event() {
-              match ext {
-                ExtOut::Offer(request_id, sdp) => {
-                  log::info!("Shutdown: offer request_id: {}, sdp: {}", request_id, sdp);
-                }
-                ExtOut::Error(request_id, reason) => {
-                  log::info!("Shutdown: error request_id: {}, reason: {}", request_id, reason);
-                }
-              }
-            }
+            while let Some(ext) = controller.pop_event() {}
           }
         }
         Some(ev) = rx.recv() => {
-          controller.spawn(ev);
+          controller.send_to_best(ExtInput::Rpc(ev));
         }
         else => {
           break;

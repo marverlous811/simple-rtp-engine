@@ -1,5 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 
+use log::debug;
+
 use super::worker::{PortRange, TaskId};
 
 pub struct CallMediaStore {
@@ -26,6 +28,7 @@ impl CallMediaStore {
   }
 
   pub fn add_task(&mut self, addr: String, task_id: TaskId) {
+    debug!("add task {:?} with addr {} ", task_id, addr);
     self.task_addr_mapper.insert(task_id, addr.clone());
     self.addr_task_mapper.insert(addr, task_id);
   }

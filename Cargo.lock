@@ -1608,6 +1608,7 @@ dependencies = [
  "convert-enum",
  "env_logger",
  "log",
+ "media",
  "public-ip-address",
  "reedline-repl-rs",
  "sans-io-runtime",

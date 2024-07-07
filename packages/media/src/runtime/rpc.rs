@@ -19,12 +19,12 @@ pub enum MediaRpcResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaRpcRequest {
-  id: String,
-  cmd: MediaRpcCmd,
+  pub id: String,
+  pub cmd: MediaRpcCmd,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaRpcResponse {
-  id: String,
-  res: MediaRpcResult,
+  pub id: String,
+  pub res: MediaRpcResult,
 }

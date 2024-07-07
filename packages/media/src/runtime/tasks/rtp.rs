@@ -6,8 +6,8 @@ use crate::runtime::worker::ChannelId;
 
 #[derive(Debug, Clone)]
 pub struct RtpForwardPacket {
-  from: u64,
-  data: Vec<u8>,
+  pub from: u64,
+  pub data: Vec<u8>,
 }
 
 pub enum RtpInput<'a> {

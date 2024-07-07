@@ -37,6 +37,7 @@ sans-io-runtime = { git = "https://github.com/8xFF/sans-io-runtime.git", rev = "
 convert-enum = { version = "0.1.0" }
 log = { version = "0.4.22" }
 env_logger = { version = "0.11.3" }
+media = { path = "packages/media" }
 
 [dev-dependencies]
 signal-hook = { version = "0.3.17" }
