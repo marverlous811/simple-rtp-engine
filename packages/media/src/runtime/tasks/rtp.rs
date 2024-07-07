@@ -7,14 +7,14 @@ use crate::runtime::worker::ChannelId;
 #[derive(Debug, Clone)]
 pub struct RtpForwardPacket {
   pub from: u64,
-  pub data: Vec<u8>,
+  pub data: Buffer<'static>,
 }
 
 pub enum RtpInput<'a> {
-  OnConnected,
   Bus { from: u64, data: Buffer<'a> },
 }
 
+#[derive(Debug)]
 pub enum RtpOutput {
   Forward { to: SocketAddr, data: Buffer<'static> },
   Bus(BusChannelControl<ChannelId, RtpForwardPacket>),
@@ -32,14 +32,16 @@ pub struct RtpTask {
 
 impl RtpTask {
   pub fn build(call_id: u64, leg_id: u64, rtp_port: usize, sdp: &str) -> Result<(Self, String, String), String> {
-    let addr = SocketAddr::from(([0, 0, 0, 0], 20000));
+    let addr = SocketAddr::from(([127, 0, 0, 1], 20000));
+    let mut output = DynamicDeque::default();
+    output.push_back_safe(RtpOutput::Bus(BusChannelControl::Subscribe(ChannelId::Call(call_id))));
     let task = RtpTask {
       addr,
       call_id,
       leg_id,
       rtp_port,
       timeout: None,
-      output: DynamicDeque::default(),
+      output,
     };
 
     Ok((task, addr.to_string(), "sdp".to_string()))
@@ -76,15 +78,6 @@ impl RtpTask {
 
   pub fn on_event<'a>(&mut self, now: Instant, input: RtpInput<'a>) -> Option<RtpOutput> {
     match input {
-      RtpInput::OnConnected => {
-        self
-          .output
-          .push_back_safe(RtpOutput::Bus(BusChannelControl::Subscribe(ChannelId::Call(
-            self.call_id,
-          ))));
-        self.timeout = None;
-        self.pop_event_inner(now, true)
-      }
       RtpInput::Bus { from, data } => {
         let buffer = Buffer::from(data.to_vec());
         self.output.push_back_safe(RtpOutput::Forward {

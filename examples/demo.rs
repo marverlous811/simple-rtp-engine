@@ -62,6 +62,21 @@ async fn request_connect(args: ArgMatches, context: &mut ReplContext) -> Result<
   Ok(Some("Ok".to_string()))
 }
 
+async fn end_call(args: ArgMatches, context: &mut ReplContext) -> Result<Option<String>, Error> {
+  let call_id = args.get_one::<String>("call_id").unwrap();
+  let req_id = context.next();
+  info!("request_id: {}, call_id: {}", req_id, call_id.clone());
+  context
+    .tx
+    .send(MediaRpcRequest {
+      id: req_id.to_string(),
+      cmd: media::MediaRpcCmd::End(call_id.clone()),
+    })
+    .await
+    .unwrap();
+  Ok(Some("Ok".to_string()))
+}
+
 fn ping(_: ArgMatches, context: &mut ReplContext) -> Result<Option<String>, Error> {
   info!("Pong");
   Ok(None)
@@ -110,9 +125,9 @@ async fn main() {
               log::warn!("Shutdown timeout => force shutdown");
               break;
             }
-
-            while let Some(ext) = controller.pop_event() {}
           }
+
+          while let Some(ext) = controller.pop_event() {}
         }
         Some(ev) = rx.recv() => {
           controller.send_to_best(ExtInput::Rpc(ev));
@@ -134,6 +149,10 @@ async fn main() {
         .arg(Arg::new("call_id").long("call_id").short('c').required(true))
         .arg(Arg::new("peer_id").long("peer_id").short('p').required(true)),
       |args, context: &mut ReplContext| Box::pin(request_connect(args, context)),
+    )
+    .with_command_async(
+      Command::new("end").arg(Arg::new("call_id").long("call_id").short('c').required(true)),
+      |args, context| Box::pin(end_call(args, context)),
     )
     .with_command(Command::new("exit"), exit)
     .with_command(Command::new("ping"), ping);

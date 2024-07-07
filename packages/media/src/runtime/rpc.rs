@@ -9,6 +9,7 @@ pub enum MediaRpcCmd {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MediaRpcResult {
+  Ok,
   Pong,
   //sdp
   Call(String),

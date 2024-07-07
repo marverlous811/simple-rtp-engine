@@ -6,7 +6,7 @@ use std::{
 };
 
 use derive_more::Display;
-use log::{debug, error};
+use log::debug;
 use sans_io_runtime::{
   backend::{BackendIncoming, BackendOutgoing},
   group_owner_type, group_task, Buffer, BusControl, BusEvent, TaskSwitcher, WorkerInner, WorkerInnerInput,
@@ -20,9 +20,18 @@ use super::{
   tasks::{RtpForwardPacket, RtpInput, RtpOutput, RtpTask},
 };
 
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[repr(u8)]
 pub enum TaskType {
-  Rtp(usize),
+  Rtp = 0,
+}
+
+impl From<usize> for TaskType {
+  fn from(value: usize) -> Self {
+    match value {
+      0 => Self::Rtp,
+      _ => panic!("Should not happen"),
+    }
+  }
 }
 
 group_owner_type!(RtpOwner);
@@ -76,10 +85,10 @@ pub struct Config {
 
 pub struct RtpEngineMediaWorker {
   worker: u16,
-  backend: usize,
   rtp_group: RtpTaskGroup,
   output: VecDeque<WorkerInnerOutput<'static, OwnerType, ExtOut, ChannelId, RtpEvent, SCfg>>,
   store: CallMediaStore,
+  switcher: TaskSwitcher,
   shutdown: bool,
 }
 
@@ -102,7 +111,8 @@ impl RtpEngineMediaWorker {
     match res {
       Ok((task, _addr, sdp)) => {
         let idx = self.rtp_group.add_task(task);
-        self.store.add_task(format!("0.0.0.0:{}", port), TaskId::Rtp(idx));
+        self.store.add_task(_addr, TaskId::Rtp(idx));
+        self.store.add_call(call_id_hashed, TaskId::Rtp(idx));
         self.output.push_back(WorkerInnerOutput::Net(
           OwnerType::System,
           BackendOutgoing::UdpListen {
@@ -142,6 +152,17 @@ impl RtpEngineMediaWorker {
           ),
         }
       }
+      MediaRpcCmd::End(call_id) => {
+        debug!("on rpc end call {}", call_id);
+        self.process_end_call(&call_id);
+        WorkerInnerOutput::Ext(
+          true,
+          ExtOut::Rpc(MediaRpcResponse {
+            id: rpc.id,
+            res: crate::MediaRpcResult::Ok,
+          }),
+        )
+      }
       _ => WorkerInnerOutput::Ext(
         true,
         ExtOut::Rpc(MediaRpcResponse {
@@ -152,28 +173,59 @@ impl RtpEngineMediaWorker {
     }
   }
 
+  pub fn process_end_call(&mut self, call_id: &str) {
+    let hashed = Self::channel_build(call_id);
+    let tasks = self.store.get_call(hashed);
+    if let Some(tasks) = tasks {
+      for task in tasks.iter() {
+        let backend = self.store.get_backend_by_task(task);
+        if let Some(slot) = backend {
+          self.output.push_back(WorkerInnerOutput::Net(
+            OwnerType::System,
+            BackendOutgoing::UdpUnlisten { slot: *slot },
+          ));
+        }
+        match task {
+          TaskId::Rtp(index) => {
+            self.rtp_group.remove_task(*index);
+          }
+        }
+      }
+    }
+    self.store.remove_call(hashed);
+  }
+
   pub fn process_rtp_out<'a>(
     &mut self,
     _now: Instant,
     index: usize,
     out: RtpOutput,
-  ) -> WorkerInnerOutput<'a, OwnerType, ExtOut, ChannelId, RtpEvent, SCfg> {
+  ) -> Option<(WorkerInnerOutput<'a, OwnerType, ExtOut, ChannelId, RtpEvent, SCfg>)> {
     let owner = OwnerType::Rtp(index.into());
     match out {
       RtpOutput::Destroy(port) => {
         self.store.push_port(port);
-        self.rtp_group.remove_task(index);
-        WorkerInnerOutput::Destroy(owner)
+        Some(WorkerInnerOutput::Destroy(owner))
       }
-      RtpOutput::Forward { to, data } => WorkerInnerOutput::Net(
+      RtpOutput::Forward { to, data } => {
+        let backend = self.store.get_backend(&to.to_string());
+        if let Some(slot) = backend {
+          Some(WorkerInnerOutput::Net(
+            OwnerType::System,
+            BackendOutgoing::UdpPacket {
+              slot: *slot,
+              to,
+              data: data.into(),
+            },
+          ))
+        } else {
+          None
+        }
+      }
+      RtpOutput::Bus(control) => Some(WorkerInnerOutput::Bus(BusControl::Channel(
         owner,
-        BackendOutgoing::UdpPacket {
-          slot: self.backend,
-          to,
-          data: data.into(),
-        },
-      ),
-      RtpOutput::Bus(control) => WorkerInnerOutput::Bus(BusControl::Channel(owner, control.convert_into())),
+        control.convert_into(),
+      ))),
     }
   }
 }
@@ -182,10 +234,10 @@ impl WorkerInner<OwnerType, ExtInput, ExtOut, ChannelId, RtpEvent, Config, SCfg>
   fn build(worker: u16, cfg: Config) -> Self {
     Self {
       worker,
-      backend: 0,
       rtp_group: RtpTaskGroup::default(),
       output: VecDeque::new(),
       store: CallMediaStore::new(cfg.port_range),
+      switcher: TaskSwitcher::new(0),
       shutdown: false,
     }
   }
@@ -206,34 +258,14 @@ impl WorkerInner<OwnerType, ExtInput, ExtOut, ChannelId, RtpEvent, Config, SCfg>
     event: sans_io_runtime::WorkerInnerInput<'a, OwnerType, ExtInput, ChannelId, RtpEvent>,
   ) -> Option<WorkerInnerOutput<'a, OwnerType, ExtOut, ChannelId, RtpEvent, SCfg>> {
     match event {
-      WorkerInnerInput::Net(_owner, sans_io_runtime::backend::BackendIncoming::UdpListenResult { bind, result }) => {
-        match result {
-          Ok((addr, _slot)) => {
-            let addr_str = addr.to_string();
-            let task = self.store.get_task(&addr_str);
-            debug!("got a connect from {} for task {:?}", addr_str, task);
-            match task {
-              Some(TaskId::Rtp(index)) => {
-                self.rtp_group.on_event(now, *index, RtpInput::OnConnected);
-              }
-              None => {}
-            };
-            None
-          }
-          Err(e) => {
-            error!("listener udp socket bind failed: {}", e);
-            None
-          }
-        }
-      }
       WorkerInnerInput::Net(_owner, BackendIncoming::UdpPacket { slot, from, data }) => {
+        self.store.add_backend(from.to_string(), slot);
         let addr_str = from.to_string();
-        let test = std::str::from_utf8(&data.to_vec()).unwrap().to_string();
-        debug!("got a msg {} from {}", addr_str, test);
         let task = self.store.get_task(&addr_str);
         match task {
           Some(TaskId::Rtp(index)) => {
-            self.rtp_group.on_event(
+            debug!("task index {}, send event to task", *index);
+            let out = self.rtp_group.on_event(
               now,
               *index,
               RtpInput::Bus {
@@ -241,10 +273,13 @@ impl WorkerInner<OwnerType, ExtInput, ExtOut, ChannelId, RtpEvent, Config, SCfg>
                 data: data.freeze(),
               },
             );
+            match out {
+              Some(out) => self.process_rtp_out(now, *index, out),
+              None => None,
+            }
           }
-          None => {}
-        };
-        None
+          None => None,
+        }
       }
       WorkerInnerInput::Bus(BusEvent::Channel(owner, channel, event)) => match (owner, event) {
         (OwnerType::Rtp(owner), RtpEvent::Foward(packet)) => {
@@ -257,7 +292,7 @@ impl WorkerInner<OwnerType, ExtInput, ExtOut, ChannelId, RtpEvent, Config, SCfg>
             },
           );
           match out {
-            Some(out) => Some(self.process_rtp_out(now, owner.index(), out)),
+            Some(out) => self.process_rtp_out(now, owner.index(), out),
             None => None,
           }
         }
@@ -275,13 +310,24 @@ impl WorkerInner<OwnerType, ExtInput, ExtOut, ChannelId, RtpEvent, Config, SCfg>
     &mut self,
     now: std::time::Instant,
   ) -> Option<WorkerInnerOutput<'a, OwnerType, ExtOut, ChannelId, RtpEvent, SCfg>> {
-    self.output.pop_front()
+    if let Some(o) = self.output.pop_front() {
+      return Some(o.into());
+    }
+
+    if let Some((index, out)) = self.rtp_group.on_tick(now) {
+      return self.process_rtp_out(now, index, out);
+    }
+
+    None
   }
 
   fn pop_output<'a>(
     &mut self,
     now: std::time::Instant,
   ) -> Option<WorkerInnerOutput<'a, OwnerType, ExtOut, ChannelId, RtpEvent, SCfg>> {
+    if let Some((index, out)) = self.rtp_group.on_tick(now) {
+      return self.process_rtp_out(now, index, out);
+    }
     self.output.pop_front()
   }
 
