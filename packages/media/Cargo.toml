@@ -8,5 +8,8 @@ tokio = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 serde = { workspace = true }
+sans-io-runtime = { workspace = true }
+convert-enum = { workspace = true }
 pubsub = { path = "../pubsub", version = "0.1.0" }
 sdp = { version = "0.6.2" }
+derive_more = "0.99"
