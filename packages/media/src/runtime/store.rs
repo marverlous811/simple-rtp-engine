@@ -5,11 +5,14 @@ use sans_io_runtime::backend;
 
 use super::worker::{PortRange, TaskId};
 
+//TODO: refactor store to save data of legs and call
 pub struct CallMediaStore {
   port_pool: VecDeque<usize>,
   addr_task_mapper: HashMap<String, TaskId>,
   addr_backend_mapper: HashMap<String, usize>,
   task_addr_mapper: HashMap<TaskId, String>,
+  addr_leg_task: HashMap<String, TaskId>,
+  task_slot: HashMap<TaskId, usize>,
   calls: HashMap<u64, Vec<TaskId>>,
 }
 
@@ -20,6 +23,8 @@ impl CallMediaStore {
       addr_backend_mapper: HashMap::new(),
       addr_task_mapper: HashMap::new(),
       task_addr_mapper: HashMap::new(),
+      addr_leg_task: HashMap::new(),
+      task_slot: HashMap::new(),
       calls: HashMap::new(),
     }
   }
@@ -82,5 +87,21 @@ impl CallMediaStore {
 
   pub fn get_task(&self, addr: &str) -> Option<&TaskId> {
     self.addr_task_mapper.get(addr)
+  }
+
+  pub fn get_slot_by_task(&self, task_id: &TaskId) -> Option<&usize> {
+    self.task_slot.get(task_id)
+  }
+
+  pub fn save_slot_task(&mut self, task_id: TaskId, slot: usize) {
+    self.task_slot.insert(task_id, slot);
+  }
+
+  pub fn save_addr_task(&mut self, addr: String, task_id: TaskId) {
+    self.addr_leg_task.insert(addr, task_id);
+  }
+
+  pub fn get_task_by_addr(&self, addr: &str) -> Option<&TaskId> {
+    self.addr_leg_task.get(addr)
   }
 }

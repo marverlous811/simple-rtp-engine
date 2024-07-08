@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, time::Instant};
+use std::{net::SocketAddr, str::FromStr, time::Instant};
 
 use sans_io_runtime::{collections::DynamicDeque, Buffer, BusChannelControl};
 
@@ -32,7 +32,7 @@ pub struct RtpTask {
 
 impl RtpTask {
   pub fn build(call_id: u64, leg_id: u64, rtp_port: usize, sdp: &str) -> Result<(Self, String, String), String> {
-    let addr = SocketAddr::from(([127, 0, 0, 1], 20000));
+    let addr = SocketAddr::from_str(sdp).map_or_else(|e| SocketAddr::from(([127, 0, 0, 1], 20000)), |a| a);
     let mut output = DynamicDeque::default();
     output.push_back_safe(RtpOutput::Bus(BusChannelControl::Subscribe(ChannelId::Call(call_id))));
     let task = RtpTask {

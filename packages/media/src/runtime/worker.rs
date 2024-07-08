@@ -6,7 +6,7 @@ use std::{
 };
 
 use derive_more::Display;
-use log::debug;
+use log::{debug, error};
 use sans_io_runtime::{
   backend::{BackendIncoming, BackendOutgoing},
   group_owner_type, group_task, Buffer, BusControl, BusEvent, TaskSwitcher, WorkerInner, WorkerInnerInput,
@@ -111,12 +111,14 @@ impl RtpEngineMediaWorker {
     match res {
       Ok((task, _addr, sdp)) => {
         let idx = self.rtp_group.add_task(task);
+        let bind_addr = SocketAddr::from(([0, 0, 0, 0], port as u16));
         self.store.add_task(_addr, TaskId::Rtp(idx));
         self.store.add_call(call_id_hashed, TaskId::Rtp(idx));
+        self.store.save_addr_task(bind_addr.to_string(), TaskId::Rtp(idx));
         self.output.push_back(WorkerInnerOutput::Net(
           OwnerType::System,
           BackendOutgoing::UdpListen {
-            addr: SocketAddr::from(([0, 0, 0, 0], port as u16)),
+            addr: bind_addr,
             reuse: false,
           },
         ));
@@ -178,7 +180,7 @@ impl RtpEngineMediaWorker {
     let tasks = self.store.get_call(hashed);
     if let Some(tasks) = tasks {
       for task in tasks.iter() {
-        let backend = self.store.get_backend_by_task(task);
+        let backend = self.store.get_slot_by_task(task);
         if let Some(slot) = backend {
           self.output.push_back(WorkerInnerOutput::Net(
             OwnerType::System,
@@ -258,6 +260,34 @@ impl WorkerInner<OwnerType, ExtInput, ExtOut, ChannelId, RtpEvent, Config, SCfg>
     event: sans_io_runtime::WorkerInnerInput<'a, OwnerType, ExtInput, ChannelId, RtpEvent>,
   ) -> Option<WorkerInnerOutput<'a, OwnerType, ExtOut, ChannelId, RtpEvent, SCfg>> {
     match event {
+      WorkerInnerInput::Net(_owner, BackendIncoming::UdpListenResult { bind: _, result }) => match result {
+        Ok((addr, slot)) => {
+          debug!("save {} by addr {}", slot, addr.to_string());
+          let task = self.store.get_task_by_addr(&addr.to_string());
+          match task {
+            Some(task_id) => {
+              self.store.save_slot_task(task_id.clone(), slot);
+              None
+            }
+            None => None,
+          }
+        }
+        Err(e) => {
+          error!("error when bind udp listener {}", e);
+          None
+        }
+      },
+      WorkerInnerInput::Net(_owner, BackendIncoming::UdpListenResult { bind: _, result }) => match result {
+        Ok((addr, slot)) => {
+          debug!("save {} by addr {}", slot, addr.to_string());
+          self.store.add_backend(addr.to_string(), slot);
+          None
+        }
+        Err(e) => {
+          error!("error when bind udp listener {}", e);
+          None
+        }
+      },
       WorkerInnerInput::Net(_owner, BackendIncoming::UdpPacket { slot, from, data }) => {
         self.store.add_backend(from.to_string(), slot);
         let addr_str = from.to_string();
