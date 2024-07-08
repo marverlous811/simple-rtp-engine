@@ -295,14 +295,9 @@ impl WorkerInner<OwnerType, ExtInput, ExtOut, ChannelId, RtpEvent, Config, SCfg>
         match task {
           Some(TaskId::Rtp(index)) => {
             debug!("task index {}, send event to task", *index);
-            let out = self.rtp_group.on_event(
-              now,
-              *index,
-              RtpInput::Bus {
-                from: 0,
-                data: data.freeze(),
-              },
-            );
+            let out = self
+              .rtp_group
+              .on_event(now, *index, RtpInput::UdpPacket { data: data.freeze() });
             match out {
               Some(out) => self.process_rtp_out(now, *index, out),
               None => None,

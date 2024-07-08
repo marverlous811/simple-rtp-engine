@@ -11,6 +11,7 @@ pub struct RtpForwardPacket {
 }
 
 pub enum RtpInput<'a> {
+  UdpPacket { data: Buffer<'a> },
   Bus { from: u64, data: Buffer<'a> },
 }
 
@@ -78,12 +79,27 @@ impl RtpTask {
 
   pub fn on_event<'a>(&mut self, now: Instant, input: RtpInput<'a>) -> Option<RtpOutput> {
     match input {
-      RtpInput::Bus { from, data } => {
+      RtpInput::UdpPacket { data } => {
         let buffer = Buffer::from(data.to_vec());
-        self.output.push_back_safe(RtpOutput::Forward {
-          to: self.addr,
-          data: buffer.into(),
-        });
+        self.output.push_back_safe(RtpOutput::Bus(BusChannelControl::Publish(
+          ChannelId::Call(self.call_id),
+          true,
+          RtpForwardPacket {
+            from: self.leg_id,
+            data: buffer.into(),
+          },
+        )));
+        self.timeout = None;
+        self.pop_event_inner(now, true)
+      }
+      RtpInput::Bus { from, data } => {
+        if from != self.leg_id {
+          let buffer = Buffer::from(data.to_vec());
+          self.output.push_back_safe(RtpOutput::Forward {
+            to: self.addr,
+            data: buffer.into(),
+          });
+        }
 
         self.timeout = None;
         self.pop_event_inner(now, true)
