@@ -161,7 +161,7 @@ impl RtpEngineMediaWorker {
           true,
           ExtOut::Rpc(MediaRpcResponse {
             id: rpc.id,
-            res: crate::MediaRpcResult::Ok,
+            res: crate::MediaRpcResult::End,
           }),
         )
       }

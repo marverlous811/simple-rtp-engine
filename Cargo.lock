@@ -109,6 +109,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-trait"
+version = "0.1.81"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e0c28dcc82d7c8ead5cb13beb15405b57b8546e93215673ff8ca0349a028107"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.67",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -140,6 +151,19 @@ name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
+name = "bin"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "log",
+ "media",
+ "ng_control",
+ "sans-io-runtime",
+ "signal-hook",
+ "tokio",
+]
 
 [[package]]
 name = "bitflags"
@@ -895,11 +919,11 @@ dependencies = [
 name = "media"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "convert-enum",
  "derive_more",
  "env_logger",
  "log",
- "pubsub",
  "sans-io-runtime",
  "sdp",
  "serde",
@@ -954,6 +978,17 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "tempfile",
+]
+
+[[package]]
+name = "ng_control"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "media",
+ "serde",
+ "serde_bencode",
+ "tokio",
 ]
 
 [[package]]
@@ -1609,6 +1644,7 @@ dependencies = [
  "env_logger",
  "log",
  "media",
+ "ng_control",
  "public-ip-address",
  "reedline-repl-rs",
  "sans-io-runtime",

@@ -1,0 +1,11 @@
+[package]
+name = "ng_control"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+log = { workspace = true }
+serde_bencode = { version = "0.2.4" }
+media = { path = "../media" }

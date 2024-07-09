@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MediaRpcCmd {
   Ping,
@@ -9,7 +11,6 @@ pub enum MediaRpcCmd {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MediaRpcResult {
-  Ok,
   Pong,
   //sdp
   Call(String),
@@ -28,4 +29,21 @@ pub struct MediaRpcRequest {
 pub struct MediaRpcResponse {
   pub id: String,
   pub res: MediaRpcResult,
+}
+
+pub struct Rpc<Req, Res> {
+  pub req: Req,
+  pub answer_tx: tokio::sync::oneshot::Sender<Res>,
+}
+
+impl<Req, Res> Rpc<Req, Res> {
+  pub fn new(req: Req) -> (Self, tokio::sync::oneshot::Receiver<Res>) {
+    let (answer_tx, answer_rx) = tokio::sync::oneshot::channel();
+    (Self { req, answer_tx }, answer_rx)
+  }
+}
+
+#[async_trait]
+pub trait RpcHandler {
+  async fn handle(&self, req: MediaRpcRequest) -> MediaRpcResponse;
 }

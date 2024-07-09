@@ -1,0 +1,13 @@
+[package]
+name = "bin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true }
+sans-io-runtime = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+signal-hook = { workspace = true }
+media = { path = "../packages/media" }
+ng_control = { path = "../packages/ng_control" }
