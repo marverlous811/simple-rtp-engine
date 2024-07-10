@@ -40,7 +40,7 @@ async fn main() -> Result<(), ()> {
     .run_until(async move {
       loop {
         tokio::select! {
-          _ = tokio::time::sleep(Duration::from_secs(10)) => {
+          _ = tokio::time::sleep(Duration::from_millis(10)) => {
             if controller.process().is_none() {
               break;
             }

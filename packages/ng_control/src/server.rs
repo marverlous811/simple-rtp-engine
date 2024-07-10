@@ -71,9 +71,9 @@ impl NgControlServer {
     let rpc_sender = self.rpc_sender.clone();
     tokio::spawn(async move {
       let rpc_req = Self::rpc_request_from_ng(req);
-      let (rpc, mut rx) = Rpc::<media::MediaRpcRequest, media::MediaRpcResponse>::new(rpc_req);
+      let (rpc, rx) = Rpc::<media::MediaRpcRequest, media::MediaRpcResponse>::new(rpc_req);
       rpc_sender.send(rpc).await.unwrap();
-      let res = rx.try_recv().unwrap();
+      let res = rx.await.unwrap();
       let ng_res = Self::ng_response_from_rpc(res);
       tx.send(NgControlMsg::Response(ng_res)).await.unwrap();
     });
