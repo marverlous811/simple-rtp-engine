@@ -2,7 +2,7 @@ use std::{net::SocketAddr, str::FromStr, time::Instant};
 
 use sans_io_runtime::{collections::DynamicDeque, Buffer, BusChannelControl};
 
-use crate::runtime::worker::ChannelId;
+use crate::{runtime::worker::ChannelId, util::get_sdp};
 
 #[derive(Debug, Clone)]
 pub struct RtpForwardPacket {
@@ -32,20 +32,31 @@ pub struct RtpTask {
 }
 
 impl RtpTask {
-  pub fn build(call_id: u64, leg_id: u64, rtp_port: usize, sdp: &str) -> Result<(Self, String, String), String> {
-    let addr = SocketAddr::from_str(sdp).map_or_else(|e| SocketAddr::from(([127, 0, 0, 1], 20000)), |a| a);
-    let mut output = DynamicDeque::default();
-    output.push_back_safe(RtpOutput::Bus(BusChannelControl::Subscribe(ChannelId::Call(call_id))));
-    let task = RtpTask {
-      addr,
-      call_id,
-      leg_id,
-      rtp_port,
-      timeout: None,
-      output,
-    };
+  pub fn build(
+    call_id: u64,
+    leg_id: u64,
+    rtp_port: usize,
+    ip: &str,
+    sdp: &str,
+  ) -> Result<(Self, String, String), String> {
+    match get_sdp(sdp, ip, rtp_port) {
+      Err(e) => return Err(e),
+      Ok((addr, sdp)) => {
+        let mut output = DynamicDeque::default();
+        let sock_addr = SocketAddr::from_str(&addr).unwrap();
+        output.push_back_safe(RtpOutput::Bus(BusChannelControl::Subscribe(ChannelId::Call(call_id))));
+        let task = RtpTask {
+          addr: sock_addr,
+          call_id,
+          leg_id,
+          rtp_port,
+          timeout: None,
+          output,
+        };
 
-    Ok((task, addr.to_string(), "sdp".to_string()))
+        Ok((task, addr.to_string(), sdp))
+      }
+    }
   }
 
   pub fn pop_event_inner(&mut self, now: Instant, has_input: bool) -> Option<RtpOutput> {

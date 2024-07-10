@@ -80,11 +80,13 @@ pub struct PortRange {
 }
 
 pub struct Config {
+  pub ip: String,
   pub port_range: PortRange,
 }
 
 pub struct RtpEngineMediaWorker {
   worker: u16,
+  ip: String,
   rtp_group: RtpTaskGroup,
   output: VecDeque<WorkerInnerOutput<'static, OwnerType, ExtOut, ChannelId, RtpEvent, SCfg>>,
   store: CallMediaStore,
@@ -107,7 +109,7 @@ impl RtpEngineMediaWorker {
       return Err("No available port".to_string());
     }
     let port = rtp_port.unwrap();
-    let res = RtpTask::build(call_id_hashed, leg_id_hashed, rtp_port.unwrap(), &sdp);
+    let res = RtpTask::build(call_id_hashed, leg_id_hashed, rtp_port.unwrap(), &self.ip, &sdp);
     match res {
       Ok((task, _addr, sdp)) => {
         let idx = self.rtp_group.add_task(task);
@@ -248,6 +250,7 @@ impl WorkerInner<OwnerType, ExtInput, ExtOut, ChannelId, RtpEvent, Config, SCfg>
       store: CallMediaStore::new(cfg.port_range),
       switcher: TaskSwitcher::new(0),
       shutdown: false,
+      ip: cfg.ip,
     }
   }
 

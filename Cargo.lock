@@ -160,6 +160,7 @@ dependencies = [
  "log",
  "media",
  "ng_control",
+ "public-ip-address",
  "sans-io-runtime",
  "signal-hook",
  "tokio",

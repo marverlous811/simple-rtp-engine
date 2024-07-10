@@ -18,6 +18,7 @@ async fn main() -> Result<(), ()> {
     .filter_level(log::LevelFilter::Debug)
     .format_timestamp_millis()
     .init();
+  let ip_lookup_res = public_ip_address::perform_lookup(None).await.unwrap();
   let mut rpc_answer_mapper = HashMap::<String, oneshot::Sender<MediaRpcResponse>>::new();
   let (rpc_sender, mut rpc_recv) = mpsc::channel::<Rpc<MediaRpcRequest, MediaRpcResponse>>(1024);
   let mut ng_server = NgControlServer::new("0.0.0.0:22222".to_string(), rpc_sender);
@@ -26,6 +27,7 @@ async fn main() -> Result<(), ()> {
   controller.add_worker::<OwnerType, _, RtpEngineMediaWorker, PollingBackend<_, 128, 512>>(
     Duration::from_millis(10),
     Config {
+      ip: ip_lookup_res.ip.to_string(),
       port_range: PortRange { min: 10000, max: 20000 },
     },
     None,

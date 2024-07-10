@@ -11,3 +11,4 @@ env_logger = { workspace = true }
 signal-hook = { workspace = true }
 media = { path = "../packages/media" }
 ng_control = { path = "../packages/ng_control" }
+public-ip-address = { version = "0.3.0" }

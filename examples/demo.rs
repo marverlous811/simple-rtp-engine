@@ -97,6 +97,7 @@ async fn main() {
   controller.add_worker::<OwnerType, _, RtpEngineMediaWorker, PollingBackend<_, 128, 512>>(
     Duration::from_millis(10),
     Config {
+      ip: "".to_string(),
       port_range: PortRange { min: 10000, max: 20000 },
     },
     None,

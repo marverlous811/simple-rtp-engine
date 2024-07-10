@@ -11,7 +11,22 @@ pub struct SdpConfig {
   pub origin: Origin,
   pub addr: String,
   pub rtp_port: isize,
-  pub rtcp_port: isize,
+}
+
+pub fn get_sdp(sdp: &str, ip: &str, rtp: usize) -> Result<(String, String), String> {
+  match SessionDescription::try_from(sdp.to_string()).map_err(|e| e.to_string()) {
+    Ok(remote_sdp) => {
+      let remote_addr = remote_sdp.connection_information.unwrap().address.unwrap().address;
+      let remote_rtp_port = remote_sdp.media_descriptions[0].media_name.port.value;
+      let local_sdp = generate_sdp(SdpConfig {
+        origin: remote_sdp.origin,
+        addr: ip.to_string(),
+        rtp_port: rtp as isize,
+      });
+      Ok((format!("{}:{}", remote_addr, remote_rtp_port), local_sdp))
+    }
+    Err(e) => Err(e.to_string()),
+  }
 }
 
 pub fn generate_sdp(cfg: SdpConfig) -> String {
@@ -44,9 +59,9 @@ pub fn generate_sdp(cfg: SdpConfig) -> String {
   .with_codec(3, "GSM".to_string(), 8000, 0, "".to_string())
   .with_codec(98, "telephone-event".to_string(), 48000, 0, "0-16".to_string())
   .with_codec(101, "telephone-event".to_string(), 8000, 0, "0-16".to_string())
-  .with_property_attribute("sendrecv".to_string())
-  .with_value_attribute("rtcp".to_string(), cfg.rtcp_port.to_string())
-  .with_property_attribute("rtcp-mux".to_string());
+  .with_property_attribute("sendrecv".to_string());
+  // .with_value_attribute("rtcp".to_string(), cfg.rtcp_port.to_string())
+  // .with_property_attribute("rtcp-mux".to_string());
   let mut sdp = SessionDescription::default().with_media(media_description);
   sdp.session_name = cfg.origin.username.clone();
   sdp.origin = cfg.origin;
