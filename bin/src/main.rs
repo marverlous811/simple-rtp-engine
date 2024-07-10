@@ -1,12 +1,6 @@
-use std::{
-  collections::HashMap,
-  sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-  },
-  time::Duration,
-};
+use std::{collections::HashMap, time::Duration};
 
+use log::debug;
 use media::{
   ChannelId, Config, ExtInput, ExtOut, MediaRpcRequest, MediaRpcResponse, OwnerType, PortRange, Rpc,
   RtpEngineMediaWorker, RtpEvent, SCfg,
@@ -21,7 +15,7 @@ use tokio::{
 #[tokio::main]
 async fn main() -> Result<(), ()> {
   env_logger::builder()
-    .filter_level(log::LevelFilter::Info)
+    .filter_level(log::LevelFilter::Debug)
     .format_timestamp_millis()
     .init();
   let mut rpc_answer_mapper = HashMap::<String, oneshot::Sender<MediaRpcResponse>>::new();
@@ -55,6 +49,7 @@ async fn main() -> Result<(), ()> {
               match ext {
                 ExtOut::Rpc(rpc) => {
                   if let Some(tx) = rpc_answer_mapper.remove(&rpc.id) {
+                    debug!("rpc answer: {:?}", rpc);
                     tx.send(rpc).unwrap();
                   }
                 }
@@ -62,6 +57,7 @@ async fn main() -> Result<(), ()> {
             }
           }
           Some(rpc) = rpc_recv.recv() => {
+            println!("got a rpc: {:?}", rpc.req);
             let req = rpc.req;
             rpc_answer_mapper.insert(req.id.clone(), rpc.answer_tx);
             controller.send_to_best(ExtInput::Rpc(req));

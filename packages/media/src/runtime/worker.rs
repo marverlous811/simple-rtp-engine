@@ -165,6 +165,13 @@ impl RtpEngineMediaWorker {
           }),
         )
       }
+      MediaRpcCmd::Ping => WorkerInnerOutput::Ext(
+        true,
+        ExtOut::Rpc(MediaRpcResponse {
+          id: rpc.id,
+          res: crate::MediaRpcResult::Pong,
+        }),
+      ),
       _ => WorkerInnerOutput::Ext(
         true,
         ExtOut::Rpc(MediaRpcResponse {

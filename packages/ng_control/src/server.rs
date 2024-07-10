@@ -1,5 +1,6 @@
 use std::{collections::HashMap, net::SocketAddr};
 
+use log::{debug, error};
 use media::{MediaRpcRequest, MediaRpcResponse, Rpc};
 use tokio::net::UdpSocket;
 
@@ -24,6 +25,7 @@ impl NgControlServer {
   }
 
   pub async fn process(&mut self) {
+    debug!("start ng control server at: {}", self.addr);
     let socket = UdpSocket::bind(self.addr.clone()).await.unwrap();
     let mut buf = vec![0; 1400];
     let mut request_mapper: HashMap<String, SocketAddr> = HashMap::new();
@@ -32,6 +34,7 @@ impl NgControlServer {
       tokio::select! {
           Ok((len, addr)) = socket.recv_from(&mut buf) => {
             let msg = std::str::from_utf8(&buf[..len]).unwrap().to_string();
+            debug!("received msg: {}", msg);
             let cmd = NgRequest::from_str(&msg);
             match cmd {
                 Some(cmd) => {
@@ -39,7 +42,7 @@ impl NgControlServer {
                     tx.send(NgControlMsg::Request(cmd)).await.unwrap();
                 }
                 None => {
-                    println!("error when parser to ng request");
+                    error!("error when parser to ng request");
                 }
             }
           }
